@@ -22,6 +22,7 @@
 #include <RooMinuit.h>
 #include <RooStats/HistFactory/MakeModelAndMeasurementsFast.h>
 #include <RooStats/HistFactory/PiecewiseInterpolation.h>
+#include <RooStats/HistFactory/RooBarlowBeestonLL.h>
 
 // Project headers
 #include "cmd.h"
@@ -178,8 +179,7 @@ void fit(ArgProxy params, Config addParams) {
   // Barlow-Beeston lite. Otherwise, every bin gets a minuit variable to
   // minimize over!  This class, on the other hand, allows a likelihood where
   // the bin parameters are analytically minimized at each step
-  unique_ptr<HistFactorySimultaneous> modelHf(
-      new HistFactorySimultaneous(*model));
+  unique_ptr<RooSimultaneous> modelHf(new RooSimultaneous(*model));
 
   auto poi = static_cast<RooRealVar *>(
       mc->GetParametersOfInterest()->createIterator()->Next());
@@ -201,12 +201,17 @@ void fit(ArgProxy params, Config addParams) {
   theVars->add(poiErr);
 
   auto data  = static_cast<RooAbsData *>(ws->data("obsData"));
-  auto nllHf = modelHf->createNLL(*data, Offset(kTRUE));
+  unique_ptr<RooAbsReal> nllHf{modelHf->createNLL(*data, Offset(true))};
+  auto bbnllHf = std::make_unique<RooBarlowBeestonLL>("bbnll", "bbnll", *nllHf);
+  bbnllHf->setPdf(modelHf.get());
+  bbnllHf->setDataset(data);
+  bbnllHf->initializeBarlowCache();
 
-  unique_ptr<RooArgSet> temp(new RooArgSet());
-  nllHf->getParameters(temp.get())->Print("V");
+  RooArgSet temp;
+  bbnllHf->getParameters(nullptr, temp);
+  temp.Print("V");
 
-  unique_ptr<RooMinuit> minuitHf(new RooMinuit(*nllHf));
+  unique_ptr<RooMinuit> minuitHf(new RooMinuit(*bbnllHf));
   minuitHf->setErrorLevel(0.5);
 
 #ifndef UNBLIND
